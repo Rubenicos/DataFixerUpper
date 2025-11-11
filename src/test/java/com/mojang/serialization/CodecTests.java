@@ -3,6 +3,10 @@
 package com.mojang.serialization;
 
 import com.google.common.collect.ImmutableMap;
+import com.mojang.datafixers.DSL;
+import com.mojang.datafixers.util.Either;
+import com.mojang.datafixers.util.Pair;
+import com.mojang.datafixers.util.Unit;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import org.junit.Test;
 
@@ -12,6 +16,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 import static org.junit.Assert.assertEquals;
@@ -504,7 +509,7 @@ public class CodecTests {
         assertFromJavaFails(Variant.CODEC, "baz");
     }
 
-    private enum MapDispatchType {
+    private enum DispatchType {
         ANY("any", Codec.STRING),
         LOWER_CASE("lower_case", Codec.STRING.validate(s -> s.toLowerCase(Locale.ROOT).equals(s) ? DataResult.success(s) : DataResult.error(() -> "Not lower case: " + s))),
         UPPER_CASE("upper_case", Codec.STRING.validate(s -> s.toUpperCase(Locale.ROOT).equals(s) ? DataResult.success(s) : DataResult.error(() -> "Not upper case: " + s))),
@@ -512,20 +517,20 @@ public class CodecTests {
         NEVER_WITH_PARTIAL("never_with_partial", Codec.STRING.validate(s -> DataResult.error(() -> "No", s)))
         ;
 
-        public static final Codec<MapDispatchType> CODEC = Codec.stringResolver(MapDispatchType::getSerializedName, MapDispatchType::lookup);
-        public static final Codec<MapDispatchType> CASE_INSENSITIVE_CODEC = Codec.stringResolver(MapDispatchType::getSerializedName, string -> lookup(string.toLowerCase(Locale.ROOT)));
+        public static final Codec<DispatchType> CODEC = Codec.stringResolver(DispatchType::getSerializedName, DispatchType::lookup);
+        public static final Codec<DispatchType> CASE_INSENSITIVE_CODEC = Codec.stringResolver(DispatchType::getSerializedName, string -> lookup(string.toLowerCase(Locale.ROOT)));
 
         private final String name;
         private final Codec<String> codec;
 
-        MapDispatchType(final String name, final Codec<String> codec) {
+        DispatchType(final String name, final Codec<String> codec) {
             this.name = name;
             this.codec = codec;
         }
 
         @Nullable
-        private static MapDispatchType lookup(final String name) {
-            for (final MapDispatchType type : values()) {
+        private static DispatchType lookup(final String name) {
+            for (final DispatchType type : values()) {
                 if (type.getSerializedName().equals(name)) {
                     return type;
                 }
@@ -538,7 +543,7 @@ public class CodecTests {
         }
     }
 
-    private static final Codec<Map<MapDispatchType, String>> DISPATCHED_MAP_CODEC = Codec.dispatchedMap(MapDispatchType.CODEC, t -> t.codec);
+    private static final Codec<Map<DispatchType, String>> DISPATCHED_MAP_CODEC = Codec.dispatchedMap(DispatchType.CODEC, t -> t.codec);
 
     @Test
     public void dispatchedMap_encode() {
@@ -549,9 +554,9 @@ public class CodecTests {
                 "upper_case", "NOT SHOUTING"
             ),
             toJava(DISPATCHED_MAP_CODEC, Map.of(
-                MapDispatchType.ANY, "Some text",
-                MapDispatchType.LOWER_CASE, "very quietly",
-                MapDispatchType.UPPER_CASE, "NOT SHOUTING"
+                DispatchType.ANY, "Some text",
+                DispatchType.LOWER_CASE, "very quietly",
+                DispatchType.UPPER_CASE, "NOT SHOUTING"
             ))
         );
     }
@@ -560,9 +565,9 @@ public class CodecTests {
     public void dispatchedMap_decode() {
         assertEquals(
             Map.of(
-                MapDispatchType.ANY, "Some text",
-                MapDispatchType.LOWER_CASE, "very quietly",
-                MapDispatchType.UPPER_CASE, "NOT SHOUTING"
+                DispatchType.ANY, "Some text",
+                DispatchType.LOWER_CASE, "very quietly",
+                DispatchType.UPPER_CASE, "NOT SHOUTING"
             ),
             fromJava(DISPATCHED_MAP_CODEC, Map.of(
                 "any", "Some text",
@@ -590,8 +595,8 @@ public class CodecTests {
     public void dispatchedMap_decodePartialResult() {
         assertEquals(
             Map.of(
-                MapDispatchType.ANY, "Some text",
-                MapDispatchType.UPPER_CASE, "NOT SHOUTING"
+                DispatchType.ANY, "Some text",
+                DispatchType.UPPER_CASE, "NOT SHOUTING"
             ),
             fromJavaOrPartial(DISPATCHED_MAP_CODEC, Map.of(
                 "any", "Some text",
@@ -603,8 +608,8 @@ public class CodecTests {
 
         assertEquals(
             Map.of(
-                MapDispatchType.ANY, "Some text",
-                MapDispatchType.UPPER_CASE, "NOT SHOUTING"
+                DispatchType.ANY, "Some text",
+                DispatchType.UPPER_CASE, "NOT SHOUTING"
             ),
             fromJavaOrPartial(DISPATCHED_MAP_CODEC, Map.of(
                 "invalid", "",
@@ -618,8 +623,8 @@ public class CodecTests {
     public void dispatchedMap_decodeNestedPartialResult() {
         assertEquals(
             Map.of(
-                MapDispatchType.NEVER_WITH_PARTIAL, "Fails with partial result",
-                MapDispatchType.ANY, "Something else"
+                DispatchType.NEVER_WITH_PARTIAL, "Fails with partial result",
+                DispatchType.ANY, "Something else"
             ),
             fromJavaOrPartial(DISPATCHED_MAP_CODEC, Map.of(
                 "never_with_partial", "Fails with partial result",
@@ -630,7 +635,7 @@ public class CodecTests {
 
     @Test
     public void dispatchedMap_decodeRepeatedEntries() {
-        final Codec<Map<MapDispatchType, String>> dispatchedMapCodec = Codec.dispatchedMap(MapDispatchType.CASE_INSENSITIVE_CODEC, t -> t.codec);
+        final Codec<Map<DispatchType, String>> dispatchedMapCodec = Codec.dispatchedMap(DispatchType.CASE_INSENSITIVE_CODEC, t -> t.codec);
 
         assertFromJavaFails(dispatchedMapCodec, Map.of(
             "lower_case", "first",
@@ -639,7 +644,7 @@ public class CodecTests {
 
         assertEquals(
             Map.of(
-                MapDispatchType.LOWER_CASE, "first"
+                DispatchType.LOWER_CASE, "first"
             ),
             fromJavaOrPartial(dispatchedMapCodec, ImmutableMap.of(
                 "lower_case", "first",
@@ -852,5 +857,331 @@ public class CodecTests {
         final Codec<Integer> codec = MapCodec.assumeMapUnsafe(Codec.INT).codec();
         assertFromJavaFails(codec, 123);
         assertToJavaFails(codec, 123);
+    }
+
+    private static final class RecordWith5Fields {
+        public static final Codec<RecordWith5Fields> CODEC = RecordCodecBuilder.create(i -> i.group(
+            Codec.INT.fieldOf("f1").forGetter(RecordWith5Fields::f1),
+            Codec.INT.fieldOf("f2").forGetter(RecordWith5Fields::f2),
+            Codec.INT.fieldOf("f3").forGetter(RecordWith5Fields::f3),
+            Codec.INT.fieldOf("f4").forGetter(RecordWith5Fields::f4),
+            Codec.INT.fieldOf("f5").forGetter(RecordWith5Fields::f5)
+        ).apply(i, RecordWith5Fields::new));
+
+        private final int f1;
+        private final int f2;
+        private final int f3;
+        private final int f4;
+        private final int f5;
+
+        public RecordWith5Fields(int f1, int f2, int f3, int f4, int f5) {
+            this.f1 = f1;
+            this.f2 = f2;
+            this.f3 = f3;
+            this.f4 = f4;
+            this.f5 = f5;
+        }
+
+        public int f1() { return f1; }
+        public int f2() { return f2; }
+        public int f3() { return f3; }
+        public int f4() { return f4; }
+        public int f5() { return f5; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof RecordWith5Fields)) return false;
+            RecordWith5Fields that = (RecordWith5Fields) o;
+            return f1 == that.f1 && f2 == that.f2 && f3 == that.f3 && f4 == that.f4 && f5 == that.f5;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(f1, f2, f3, f4, f5);
+        }
+    }
+
+    private static final class RecordWith7Fields {
+        public static final Codec<RecordWith7Fields> CODEC = RecordCodecBuilder.create(i -> i.group(
+            Codec.INT.fieldOf("f1").forGetter(RecordWith7Fields::f1),
+            Codec.INT.fieldOf("f2").forGetter(RecordWith7Fields::f2),
+            Codec.INT.fieldOf("f3").forGetter(RecordWith7Fields::f3),
+            Codec.INT.fieldOf("f4").forGetter(RecordWith7Fields::f4),
+            Codec.INT.fieldOf("f5").forGetter(RecordWith7Fields::f5),
+            Codec.INT.fieldOf("f6").forGetter(RecordWith7Fields::f6),
+            Codec.INT.fieldOf("f7").forGetter(RecordWith7Fields::f7)
+        ).apply(i, RecordWith7Fields::new));
+
+        private final int f1;
+        private final int f2;
+        private final int f3;
+        private final int f4;
+        private final int f5;
+        private final int f6;
+        private final int f7;
+
+        public RecordWith7Fields(int f1, int f2, int f3, int f4, int f5, int f6, int f7) {
+            this.f1 = f1;
+            this.f2 = f2;
+            this.f3 = f3;
+            this.f4 = f4;
+            this.f5 = f5;
+            this.f6 = f6;
+            this.f7 = f7;
+        }
+
+        public int f1() { return f1; }
+        public int f2() { return f2; }
+        public int f3() { return f3; }
+        public int f4() { return f4; }
+        public int f5() { return f5; }
+        public int f6() { return f6; }
+        public int f7() { return f7; }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof RecordWith7Fields)) return false;
+            RecordWith7Fields that = (RecordWith7Fields) o;
+            return f1 == that.f1 && f2 == that.f2 && f3 == that.f3 &&
+                    f4 == that.f4 && f5 == that.f5 && f6 == that.f6 && f7 == that.f7;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(f1, f2, f3, f4, f5, f6, f7);
+        }
+    }
+
+    private static void assertMapOrderEqual(Map<?, ?> expected, Object actual) {
+        assertTrue(actual instanceof Map<?, ?>);
+        assertEquals(
+            new ArrayList<>(expected.entrySet()),
+            new ArrayList<>(((Map<?, ?>) actual).entrySet())
+        );
+    }
+
+    @Test
+    public void recordCodec_maintainFieldOrder() {
+        assertMapOrderEqual(
+            ImmutableMap.of(
+                "f1", 5,
+                "f2", 4,
+                "f3", 3,
+                "f4", 2,
+                "f5", 1
+            ),
+            toJava(RecordWith5Fields.CODEC, new RecordWith5Fields(5, 4, 3, 2, 1))
+        );
+
+        assertMapOrderEqual(
+            ImmutableMap.of(
+                "f1", 7,
+                "f2", 6,
+                "f3", 5,
+                "f4", 4,
+                "f5", 3,
+                "f6", 2,
+                "f7", 1
+            ),
+            toJava(RecordWith7Fields.CODEC, new RecordWith7Fields(7, 6, 5, 4, 3, 2, 1))
+        );
+    }
+
+    private static final class DispatchedValue {
+        public static final Codec<DispatchedValue> CODEC = DispatchType.CODEC.dispatch(DispatchedValue::type, t ->
+            t.codec.fieldOf("value").xmap(s -> new DispatchedValue(t, s), v -> v.value)
+        );
+
+        private final DispatchType type;
+        private final String value;
+
+        public DispatchedValue(DispatchType type, String value) {
+            this.type = type;
+            this.value = value;
+        }
+
+        public DispatchType type() {
+            return type;
+        }
+
+        public String value() {
+            return value;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof DispatchedValue)) return false;
+            DispatchedValue that = (DispatchedValue) o;
+            return Objects.equals(type, that.type) && Objects.equals(value, that.value);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(type, value);
+        }
+    }
+
+    @Test
+    public void valueDispatch() {
+        assertRoundTrip(
+            DispatchedValue.CODEC.listOf(),
+            List.of(
+                new DispatchedValue(DispatchType.ANY, "Some text"),
+                new DispatchedValue(DispatchType.LOWER_CASE, "very quietly"),
+                new DispatchedValue(DispatchType.UPPER_CASE, "NOT SHOUTING")
+            ),
+            List.of(
+                Map.of("type", "any", "value", "Some text"),
+                Map.of("type", "lower_case", "value", "very quietly"),
+                Map.of("type", "upper_case", "value", "NOT SHOUTING")
+            )
+        );
+    }
+
+    @Test
+    public void valueDispatch_decodeInvalidType() {
+        assertFromJavaFails(DispatchedValue.CODEC, Map.of(
+            "type", "invalid",
+            "value", "Some text"
+        ));
+    }
+
+    @Test
+    public void valueDispatch_decodeMissingType() {
+        assertFromJavaFails(DispatchedValue.CODEC, Map.of(
+            "value", "Some text"
+        ));
+    }
+
+    @Test
+    public void valueDispatch_decodeInvalidValue() {
+        assertFromJavaFails(DispatchedValue.CODEC, Map.of(
+            "type", "lower_case",
+            "value", "SHOUTING"
+        ));
+    }
+
+    @Test
+    public void valueDispatch_decodeInvalidValuePartialResult() {
+        assertEquals(
+            new DispatchedValue(DispatchType.NEVER_WITH_PARTIAL, "Some text"),
+            fromJavaOrPartial(DispatchedValue.CODEC, Map.of(
+                "type", "never_with_partial",
+                "value", "Some text"
+            ))
+        );
+    }
+
+    @Test
+    public void valueDispatch_keyHasPriorityOverContents() {
+        // Minimized common pattern found in datafixer codecs: a tagged choice with contents that eventually include remainder
+        final Codec<Pair<String, Dynamic<?>>> codec = Codec.STRING.dispatch("type", Pair::getFirst, type -> MapCodec.assumeMapUnsafe(Codec.PASSTHROUGH).xmap(v -> Pair.of(type, v), Pair::getSecond));
+
+        final Map<String, String> originalContents = Map.of(
+            "type", "some_type",
+            "value", "some_value"
+        );
+        final Pair<String, Dynamic<?>> parsedResult = fromJava(codec, originalContents);
+
+        assertEquals(
+            Pair.of(
+                "some_type",
+                new Dynamic<>(JavaOps.INSTANCE, originalContents)
+            ),
+            parsedResult
+        );
+
+        final Pair<String, Dynamic<?>> modifiedResult = parsedResult.mapFirst(t -> "some_other_type");
+        assertEquals(
+            Map.of(
+                "type", "some_other_type",
+                "value", "some_value"
+            ),
+            toJava(codec, modifiedResult)
+        );
+    }
+
+    @Test
+    public void unitMapCodecEncoding() {
+        final Object marker = new Object();
+
+        assertRoundTrip(
+            MapCodec.unit(marker).codec(),
+            marker,
+            Map.of()
+        );
+    }
+
+    @Test
+    public void algebraicTypeCodec() {
+        @SuppressWarnings("unchecked") final Codec<Object> codec = (Codec<Object>) DSL.or(
+            DSL.optionalFields(
+                "a", DSL.string().template(),
+                "b", DSL.string().template()
+            ),
+            DSL.string().template()
+        ).toSimpleType().codec();
+
+
+        assertRoundTrip(
+            codec,
+            Either.left( // first choice in top OR
+                Pair.of( // values for fields (a, b, remainder), encoded as nested pairs (a + (b + remainder))
+                    Either.left("foo"), // field a is present
+                    Pair.of(
+                        Either.right(Unit.INSTANCE), // field b is missing
+                        new Dynamic<>(JavaOps.INSTANCE, Map.of( // remainder
+                            "a", "foo"
+                        ))
+                    )
+                )
+            ),
+            Map.of(
+                "a", "foo"
+            )
+        );
+
+        assertRoundTrip(
+            codec,
+            Either.left( // first choice in top OR
+                Pair.of(
+                    Either.right(Unit.INSTANCE), // field a is missing
+                    Pair.of(
+                        Either.left("bar"), // field b is present
+                        new Dynamic<>(JavaOps.INSTANCE, Map.of( // remainder
+                            "b", "bar"
+                        ))
+                    )
+                )
+            ),
+            Map.of(
+                "b", "bar"
+            )
+        );
+
+        assertRoundTrip(
+            codec,
+            Either.left( // first choice in top OR
+                Pair.of(
+                    Either.right(Unit.INSTANCE), // field a is missing
+                    Pair.of(
+                        Either.right(Unit.INSTANCE), // field b is missing
+                        new Dynamic<>(JavaOps.INSTANCE, Map.of())
+                    )
+                )
+            ),
+            Map.of()
+        );
+
+        assertRoundTrip(
+            codec,
+            Either.right( // second choice in top OR
+                "foo" // No remainder, just actual value
+            ),
+            "foo"
+        );
     }
 }

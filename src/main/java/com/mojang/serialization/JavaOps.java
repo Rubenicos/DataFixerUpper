@@ -12,6 +12,7 @@ import it.unimi.dsi.fastutil.longs.LongList;
 
 import javax.annotation.Nullable;
 import java.nio.ByteBuffer;
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -187,6 +188,9 @@ public class JavaOps implements DynamicOps<Object> {
         }
         if (input instanceof List) {
             final List<?> list = (List<?>) input;
+            if (values.isEmpty()) {
+                return DataResult.success(list);
+            }
             if (list.isEmpty()) {
                 return DataResult.success(values);
             }
@@ -220,6 +224,9 @@ public class JavaOps implements DynamicOps<Object> {
         }
         if (input instanceof Map) {
             final Map<?, ?> map = (Map<?, ?>) input;
+            if (values.isEmpty()) {
+                return DataResult.success(map);
+            }
             if (map.isEmpty()) {
                 return DataResult.success(values);
             }
@@ -246,9 +253,15 @@ public class JavaOps implements DynamicOps<Object> {
                 return DataResult.success(mapLikeToMap(values));
             }
 
+            final Iterator<Pair<Object, Object>> valuesIterator = values.entries().iterator();
+            if (!valuesIterator.hasNext()) {
+                return DataResult.success(map);
+            }
+
             final ImmutableMap.Builder<Object, Object> result = ImmutableMap.builderWithExpectedSize(map.size());
             result.putAll(map);
-            values.entries().forEach(e -> result.put(e.getFirst(), e.getSecond()));
+
+            valuesIterator.forEachRemaining(e -> result.put(e.getFirst(), e.getSecond()));
             return DataResult.success(result.buildKeepingLast());
         }
         return DataResult.error(() -> "Not a map: " + input);

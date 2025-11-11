@@ -11,7 +11,6 @@ import com.mojang.serialization.codecs.CompoundListCodec;
 import com.mojang.serialization.codecs.DispatchedMapCodec;
 import com.mojang.serialization.codecs.EitherCodec;
 import com.mojang.serialization.codecs.EitherMapCodec;
-import com.mojang.serialization.codecs.KeyDispatchCodec;
 import com.mojang.serialization.codecs.ListCodec;
 import com.mojang.serialization.codecs.OptionalFieldCodec;
 import com.mojang.serialization.codecs.PairCodec;
@@ -128,8 +127,12 @@ public interface Codec<A> extends Encoder<A>, Decoder<A> {
     }
 
     static <T> Codec<T> withAlternative(final Codec<T> primary, final Codec<? extends T> alternative) {
+        return primary.withAlternative(alternative);
+    }
+
+    default Codec<A> withAlternative(final Codec<? extends A> alternative) {
         return Codec.either(
-            primary,
+            this,
             alternative
         ).xmap(
             Either::unwrap,
@@ -138,8 +141,12 @@ public interface Codec<A> extends Encoder<A>, Decoder<A> {
     }
 
     static <T, U> Codec<T> withAlternative(final Codec<T> primary, final Codec<U> alternative, final Function<U, T> converter) {
+        return primary.withAlternative(alternative, converter);
+    }
+
+    default <U> Codec<A> withAlternative(final Codec<U> alternative, final Function<U, A> converter) {
         return Codec.either(
-            primary,
+            this,
             alternative
         ).xmap(
             either -> either.map(v -> v, converter),
@@ -422,28 +429,20 @@ public interface Codec<A> extends Encoder<A>, Decoder<A> {
         return Codec.of(this, Decoder.super.promotePartial(onError));
     }
 
-    static <A> Codec<A> unit(final A defaultValue) {
-        return unit(() -> defaultValue);
-    }
-
-    static <A> Codec<A> unit(final Supplier<A> defaultValue) {
-        return MapCodec.unit(defaultValue).codec();
-    }
-
     default <E> Codec<E> dispatch(final Function<? super E, ? extends A> type, final Function<? super A, ? extends MapCodec<? extends E>> codec) {
         return dispatch("type", type, codec);
     }
 
     default <E> Codec<E> dispatch(final String typeKey, final Function<? super E, ? extends A> type, final Function<? super A, ? extends MapCodec<? extends E>> codec) {
-        return partialDispatch(typeKey, type.andThen(DataResult::success), codec.andThen(DataResult::success));
+        return fieldOf(typeKey).dispatch(type, codec);
     }
 
     default <E> Codec<E> dispatchStable(final Function<? super E, ? extends A> type, final Function<? super A, ? extends MapCodec<? extends E>> codec) {
-        return partialDispatch("type", e -> DataResult.success(type.apply(e), Lifecycle.stable()), a -> DataResult.success(codec.apply(a), Lifecycle.stable()));
+        return fieldOf("type").dispatchStable(type, codec);
     }
 
     default <E> Codec<E> partialDispatch(final String typeKey, final Function<? super E, ? extends DataResult<? extends A>> type, final Function<? super A, ? extends DataResult<? extends MapCodec<? extends E>>> codec) {
-        return new KeyDispatchCodec<>(typeKey, this, type, codec).codec();
+        return fieldOf(typeKey).partialDispatch(type, codec);
     }
 
     default <E> MapCodec<E> dispatchMap(final Function<? super E, ? extends A> type, final Function<? super A, ? extends MapCodec<? extends E>> codec) {
@@ -451,7 +450,7 @@ public interface Codec<A> extends Encoder<A>, Decoder<A> {
     }
 
     default <E> MapCodec<E> dispatchMap(final String typeKey, final Function<? super E, ? extends A> type, final Function<? super A, ? extends MapCodec<? extends E>> codec) {
-        return new KeyDispatchCodec<>(typeKey, this, type.andThen(DataResult::success), codec.andThen(DataResult::success));
+        return fieldOf(typeKey).dispatchMap(type, codec);
     }
 
     default Codec<A> validate(final Function<A, DataResult<A>> checker) {
@@ -738,5 +737,5 @@ public interface Codec<A> extends Encoder<A>, Decoder<A> {
         }
     };
 
-    MapCodec<Unit> EMPTY = MapCodec.of(Encoder.empty(), Decoder.unit(Unit.INSTANCE));
+    MapCodec<Unit> EMPTY = MapCodec.unit(Unit.INSTANCE);
 }

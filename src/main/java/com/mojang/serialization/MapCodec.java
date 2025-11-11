@@ -5,6 +5,7 @@ package com.mojang.serialization;
 import com.google.common.base.Suppliers;
 import com.mojang.datafixers.DataFixUtils;
 import com.mojang.datafixers.util.Pair;
+import com.mojang.serialization.codecs.KeyDispatchCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 
 import java.util.function.BiFunction;
@@ -208,6 +209,22 @@ public abstract class MapCodec<A> extends CompressorHolder implements MapDecoder
         return new Dependent<>(this, initialInstance, splitter, combiner);
     }
 
+    public <E> Codec<E> dispatch(final Function<? super E, ? extends A> type, final Function<? super A, ? extends MapCodec<? extends E>> codec) {
+        return partialDispatch(type.andThen(DataResult::success), codec.andThen(DataResult::success));
+    }
+
+    public <E> Codec<E> dispatchStable(final Function<? super E, ? extends A> type, final Function<? super A, ? extends MapCodec<? extends E>> codec) {
+        return partialDispatch(e -> DataResult.success(type.apply(e), Lifecycle.stable()), a -> DataResult.success(codec.apply(a), Lifecycle.stable()));
+    }
+
+    public <E> Codec<E> partialDispatch(final Function<? super E, ? extends DataResult<? extends A>> type, final Function<? super A, ? extends DataResult<? extends MapCodec<? extends E>>> codec) {
+        return new KeyDispatchCodec<>(this, type, codec).codec();
+    }
+
+    public <E> MapCodec<E> dispatchMap(final Function<? super E, ? extends A> type, final Function<? super A, ? extends MapCodec<? extends E>> codec) {
+        return new KeyDispatchCodec<>(this, type.andThen(DataResult::success), codec.andThen(DataResult::success));
+    }
+
     private static class Dependent<O, E> extends MapCodec<O> {
         private final MapCodec<E> initialInstance;
         private final Function<O, Pair<E, MapCodec<E>>> splitter;
@@ -383,7 +400,62 @@ public abstract class MapCodec<A> extends CompressorHolder implements MapDecoder
         return unit(() -> defaultValue);
     }
 
-    public static <A> MapCodec<A> unit(final Supplier<A> defaultValue) {
-        return MapCodec.of(Encoder.empty(), Decoder.unit(defaultValue));
+    public static <A> MapCodec<A> unit(final Supplier<A> value) {
+        return new MapCodec<>() {
+            @Override
+            public <T> Stream<T> keys(final DynamicOps<T> ops) {
+                return Stream.empty();
+            }
+
+            @Override
+            public <T> DataResult<A> decode(final DynamicOps<T> ops, final MapLike<T> input) {
+                return DataResult.success(value.get());
+            }
+
+            @Override
+            public <T> RecordBuilder<T> encode(final A input, final DynamicOps<T> ops, final RecordBuilder<T> prefix) {
+                return prefix;
+            }
+
+            @Override
+            public Codec<A> codec() {
+                return unitCodec(value);
+            }
+
+            @Override
+            public String toString() {
+                return "Unit[" + value.get() + "]";
+            }
+        };
+    }
+
+    public static <A> Codec<A> unitCodec(final A value) {
+        return unitCodec(() -> value);
+    }
+
+    /**
+     * Replacement for {@link MapCodecCodec} that does not allocate new builder, but otherwise has same effect of containing structure.
+     * Value will be represented as {@link DynamicOps#emptyMap()}
+     */
+    public static <A> Codec<A> unitCodec(final Supplier<A> value) {
+        return new Codec<>() {
+            @Override
+            public <T> DataResult<Pair<A, T>> decode(final DynamicOps<T> ops, final T input) {
+                // Check required mostly for parsing of optional fields in data fixers
+                final DataResult<?> check = ops.compressMaps() ? ops.getList(input) : ops.getMap(input);
+                return check.map(ignore -> Pair.of(value.get(), input));
+            }
+
+            @Override
+            public <T> DataResult<T> encode(final A input, final DynamicOps<T> ops, final T prefix) {
+                // Enforces type, but also updates empty() to emptyMap()
+                return ops.mergeToMap(prefix, MapLike.empty());
+            }
+
+            @Override
+            public String toString() {
+                return "Unit[" + value.get() + "]";
+            }
+        };
     }
 }
